@@ -7,6 +7,10 @@ from nodes import SaveImage
 from .trim_workflow import PromptTrim, WorkflowTrim
 from.file_compressor import FileCompressor
 import folder_paths
+import base64
+from io import BytesIO
+from PIL import Image
+import numpy as np
 
 
 class SaveCryptoNode():
@@ -158,17 +162,6 @@ class RandomSeedNode():
         # 产生随机数
         return (random.randint(0, 999999), )
     
-from nodes import SaveImage
-import json
-from PIL import Image
-import numpy as np
-from PIL.PngImagePlugin import PngInfo
-from comfy.cli_args import args # type: ignore
-import folder_paths # type: ignore
-from folder_paths import get_filename_list # type: ignore
-import comfy
-import os
-
 
 class CryptoCatImage(SaveImage):
     def __init__(self):
@@ -179,51 +172,32 @@ class CryptoCatImage(SaveImage):
         return {
             "required": {
                 "images": ("IMAGE", {"tooltip": "The images to save."}),
-                "filename_prefix": ("STRING", {"default": "ComfyUI", "tooltip": "The prefix for the file to save. This may include formatting information such as %date:yyyy-MM-dd% or %Empty Latent Image.width% to include values from nodes."}),
-                "format": ("STRING", {"default": "png", "tooltip": "The image format (e.g., png, jpg, etc.)."}),
-                "quality": ("INT", {"default": 92, "min": 1, "max": 100, "step": 1, "tooltip": "The image quality for JPEG (1-100)."})
+                "filename_prefix": ("STRING", {"default": "ComfyUI", "tooltip": "The prefix for the file to save. This may include formatting information such as %date:yyyy-MM-dd% or %Empty Latent Image.width% to include values from nodes."})
             },
             "hidden": {
                 "prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"
             },
         }
 
-    RETURN_TYPES = ()
+    RETURN_TYPES = ("STRING",)  # Changed to return base64 string
     FUNCTION = "save_images"
-
     OUTPUT_NODE = True
-
     CATEGORY = "advanced/CryptoCat"
-    DESCRIPTION = "Saves the input images to your ComfyUI output directory."
+    DESCRIPTION = "Saves the input images to your ComfyUI output directory and returns base64."
 
-    def save_images(self, images, filename_prefix="ComfyUI", format="png", quality=92, prompt=None, extra_pnginfo=None):
-        # Convert image tensor to numpy array and then to PIL Image
-        img = Image.fromarray(np.clip(255.0 * images[0].cpu().numpy(), 0, 255).astype(np.uint8))
+    def save_images(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+        # First save images normally
+        super().save_images(images, filename_prefix, None, None)
 
-        # Ensure the filename has the correct extension
-        filename = f"{filename_prefix}"
-        if format.lower() == "jpg" or format.lower() == "jpeg":
-            if not filename.lower().endswith(".jpg"):
-                filename = f"{filename}.jpg"
-            extension = "JPEG"
-            # Save with quality for JPG images
-            img.save(os.path.join(self.output_dir, filename), extension, quality=quality, optimize=True)
-        else:
-            if not filename.lower().endswith(".png"):
-                filename = f"{filename}.png"
-            extension = "PNG"
-            # Save PNG images without quality adjustment (since PNG is lossless)
-            img.save(os.path.join(self.output_dir, filename), extension, optimize=True)
+        # Then convert to base64
 
-        # Return the filename for UI display
-        return {"ui": {"images": [{"filename": filename}]}}
-
-# Export node
-NODE_CLASS_MAPPINGS = {
-    "CryptoCatImage": CryptoCatImage,
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "CryptoCatImage": "Save Image (PNG/JPG) CryptoCat",
-}
-
+        # Convert tensor to PIL image
+        i = 255. * images.cpu().numpy()
+        img = Image.fromarray(np.clip(i[0], 0, 255).astype(np.uint8))
+        
+        # Convert to base64
+        buffered = BytesIO()
+        img.save(buffered, format="JPEG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        
+        return (img_str,)
